@@ -1,6 +1,9 @@
 #pragma once
 #include <driver/spi_master.h>
-#include <driver/gpio.h>
+//#include <driver/gpio.h>
+extern "C"{
+#include "GPIO_DRIVER.h"
+}
 #include <stdint.h>
 #include <freertos/FreeRTOS.h>
 #include <cstring> 
@@ -31,10 +34,10 @@
 #define CYAN        0x07FF
 #define MAGENTA     0xF81F
 #define GRAY        0x7BEF
-#define ORANGE      0xFDA0
-#define PURPLE      0x8010
-#define LIME        0x07E0  
-#define TEAL        0x0410  
+#define ORANGE      0xFDA0  // Оранжевый
+#define PURPLE      0x8010  // Фиолетовый
+#define LIME        0x07E0  // Лайм
+#define TEAL        0x0410  // Бирюзовый
 #define DARK_RED    0x8000
 #define DARK_GREEN  0x0400
 #define DARK_BLUE   0x0010
@@ -56,7 +59,7 @@ class ST7789 {
     int dcPin;
     int rstPin;
     uint16_t* canvas = nullptr; 
-    uint16_t* lines [QUEUE_DEPTH]={nullptr};
+    uint16_t* lines [QUEUE_DEPTH] = {nullptr};
     void sendCommand(uint8_t command);
     void sendData(uint8_t data);
     void sendDataArray(uint8_t* array, int len);
@@ -72,5 +75,6 @@ class ST7789 {
     void fillreg(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
     void fillTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, uint16_t color);
     void drawLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
+    void drawLineF(uint16_t x1, uint16_t x2,uint16_t y ,uint16_t color);
     void print(uint16_t x, uint16_t y, const char* str, uint16_t color, uint8_t scale=2);
 };

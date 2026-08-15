@@ -7,14 +7,14 @@ void ST7789::sendCommand(uint8_t command){
     spi_transaction_t t = {};
     t.length = 8;
     t.tx_buffer = &command;
-    gpio_set_level((gpio_num_t)dcPin, 0);
+    my_gpio_set_level((uint8_t)dcPin, 0);
     spi_device_transmit(spi, &t);
 }
 void ST7789::sendData(uint8_t data){
     spi_transaction_t t = {};
     t.length = 8;
     t.tx_buffer = &data;
-    gpio_set_level((gpio_num_t)dcPin, 1);
+    my_gpio_set_level((uint8_t)dcPin, 1);
     spi_device_transmit(spi,&t);
 }
 void ST7789::sendDataArray(uint8_t* array, int len){
@@ -24,18 +24,18 @@ void ST7789::sendDataArray(uint8_t* array, int len){
     spi_transaction_t t = {};
     t.length = len*8;
     t.tx_buffer = array;
-    gpio_set_level((gpio_num_t)dcPin,1);
+    my_gpio_set_level((uint8_t)dcPin,1);
     spi_device_transmit(spi,&t);
 }
 void ST7789::init(){
-    gpio_reset_pin((gpio_num_t)dcPin);//сброс пинов и выставление их режима работы
-    gpio_reset_pin((gpio_num_t)rstPin);
-    gpio_set_direction((gpio_num_t)dcPin,GPIO_MODE_OUTPUT);
-    gpio_set_direction((gpio_num_t)rstPin, GPIO_MODE_OUTPUT);
+    my_gpio_reset_pin((uint8_t)dcPin);//сброс пинов и выставление их режима работы
+    my_gpio_reset_pin((uint8_t)rstPin);
+    my_gpio_set_direction((uint8_t)dcPin,GPIO_MODE_OUTPUT);
+    my_gpio_set_direction((uint8_t)rstPin, GPIO_MODE_OUTPUT);
     spi_bus_config_t bus_config = {};//создание структуры конфигурации шины(просто задаем пины)
-    bus_config.mosi_io_num = (gpio_num_t)mosiPin;
+    bus_config.mosi_io_num = mosiPin;
     bus_config.miso_io_num = -1;
-    bus_config.sclk_io_num = (gpio_num_t)clkPin;
+    bus_config.sclk_io_num = clkPin;
     bus_config.quadwp_io_num = -1;
     bus_config.quadhd_io_num = -1;
     bus_config.max_transfer_sz = DISPLAY_HEIGHT*DISPLAY_WIDTH*2;
@@ -46,9 +46,9 @@ void ST7789::init(){
     dev_config.spics_io_num = -1;
     dev_config.queue_size = 10;
     spi_bus_add_device(SPI2_HOST, &dev_config, &spi);
-    gpio_set_level((gpio_num_t)rstPin,0);//перезагрузка
+    my_gpio_set_level((uint8_t)rstPin,0);//перезагрузка
     vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level((gpio_num_t)rstPin,1);//вкл
+    my_gpio_set_level((uint8_t)rstPin,1);//вкл
     //команды инициализации дисплея
     vTaskDelay(pdMS_TO_TICKS(120));
     sendCommand(ST7789_SWRESET);
@@ -69,6 +69,7 @@ void ST7789::init(){
     for(int i=0; i<QUEUE_DEPTH; i++){
         lines[i] = (uint16_t*)heap_caps_malloc(DISPLAY_WIDTH*DMA_LINES*2, MALLOC_CAP_DMA);
     }
+    
     ESP_LOGI(display, "Дисплей инициализирован");
 }
 void ST7789::setWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2){
@@ -92,9 +93,20 @@ void ST7789::setWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2){
 }
 void ST7789::fillScreen(uint16_t color){
     std::lock_guard<std::recursive_mutex> lock(d_mutex);
-    for(int i=0; i<DISPLAY_WIDTH*DISPLAY_HEIGHT; i++){
-        canvas[i]= gettruecolor(color);
+    if((color>>8) == (color&0xff)){
+    memset(canvas, (uint8_t)(color), DISPLAY_WIDTH * DISPLAY_HEIGHT * 2);
+    return;
     }
+    uint16_t tcolor = gettruecolor(color);
+    uint32_t *canvas32 = (uint32_t *)canvas;
+    int size = DISPLAY_HEIGHT*DISPLAY_WIDTH/2;
+    uint32_t color32 = ((uint32_t)tcolor << 16) | tcolor;
+    for(int i=0; i<size; i++){
+        canvas32[i]= color32;
+    }
+    /*for(int i=0; i<DISPLAY_WIDTH*DISPLAY_HEIGHT; i++){
+        canvas[i]= gettruecolor(color);
+    }*/
 }
 void ST7789::drawPixel(uint16_t x, uint16_t y, uint16_t color){
     std::lock_guard<std::recursive_mutex> lock(d_mutex);
@@ -127,7 +139,7 @@ void ST7789::drawLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16
 void ST7789::Render(){
     std::lock_guard<std::recursive_mutex> lock(d_mutex);
     setWindow(0,0,DISPLAY_WIDTH-1,DISPLAY_HEIGHT-1);
-    gpio_set_level((gpio_num_t)dcPin, 1);
+    my_gpio_set_level((uint8_t)dcPin, 1);
     int step = 0;
     spi_transaction_t t [QUEUE_DEPTH];
     memset(t, 0,sizeof(t));
@@ -174,14 +186,16 @@ void ST7789::fillTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, ui
         for (int y = points[0].y; y < points[1].y; y++) {
             int x_large = points[0].x + (y - points[0].y) * (points[2].x - points[0].x) / (points[2].y - points[0].y);
             int x_short = points[0].x + (y - points[0].y) * (points[1].x - points[0].x) / (points[1].y - points[0].y);
-            drawLine(x_large, y, x_short, y, color);
+            drawLineF(x_large, x_short,y, color);
+            //drawLine(x_large, y, x_short, y, color);
         }
     }
     if (points[1].y != points[2].y) {
         for (int y = points[1].y; y <= points[2].y; y++) {
             int x_large = points[0].x + (y - points[0].y) * (points[2].x - points[0].x) / (points[2].y - points[0].y);
             int x_short = points[1].x + (y - points[1].y) * (points[2].x - points[1].x) / (points[2].y - points[1].y);
-            drawLine(x_large, y, x_short, y, color);
+            drawLineF(x_large, x_short,y, color);
+            //drawLine(x_large, y, x_short, y, color);
         }
     }
 }
@@ -209,6 +223,18 @@ void ST7789::print(uint16_t x, uint16_t y, const char* str, uint16_t color,uint8
     }
         i++;
         x+=8*scale;
+    }
+}
+void ST7789::drawLineF(uint16_t x1, uint16_t x2,uint16_t y ,uint16_t color){
+    if(y>=DISPLAY_HEIGHT)return;
+    if(x1>x2){
+        std::swap(x1,x2);
+    }
+    if (x1 >= DISPLAY_WIDTH) return;
+    if (x2 >= DISPLAY_WIDTH) x2 = DISPLAY_WIDTH - 1;
+    while(x1!=x2){
+        drawPixel(x1,y, color);
+        x1++;
     }
 }
 ST7789::~ST7789(){

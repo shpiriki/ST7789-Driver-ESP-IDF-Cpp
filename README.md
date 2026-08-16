@@ -1,6 +1,6 @@
 # ST7789 Driver & 3D Engine (ESP-IDF / C++)
 
-A custom C++ driver for the ST7789 display, built from scratch for the ESP-IDF framework, without relying on heavy external graphics libraries. Written for FreeRTOS-based projects where multiple tasks need to draw into a shared framebuffer.
+A custom C++ driver for the ST7789 display(with custom gpio driver), built from scratch for the ESP-IDF framework, without relying on heavy external graphics libraries. Written for FreeRTOS-based projects where multiple tasks need to draw into a shared framebuffer.
 
 This is a personal/hobby project — not a production-hardened library. It works reliably in my own use case; read the "Known limitations" section before relying on it in yours.
 
@@ -48,6 +48,7 @@ extern "C" void app_main() {
 
 - `main/st7789.cpp` / `main/st7789.h` — driver core: SPI/DMA transport, framebuffer, drawing primitives.
 - `main/font8x16.h` — bitmap font table.
+- `main/GPIO_DRIVER.c` / `main/GPIO_DRIVER.h` - gpio driver
 
 ## Known limitations
 

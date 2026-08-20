@@ -108,9 +108,9 @@ void ST7789::fillScreen(uint16_t color){
         canvas[i]= gettruecolor(color);
     }*/
 }
-void ST7789::drawPixel(uint16_t x, uint16_t y, uint16_t color){
+void ST7789::drawPixel(int x, int y, uint16_t color){
     std::lock_guard<std::recursive_mutex> lock(d_mutex);
-    if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return;
+    if (x<0||y<0||x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return;
 
     int index = x +(y*DISPLAY_WIDTH);
     canvas[index]= gettruecolor(color);
@@ -151,17 +151,27 @@ void ST7789::Render(){
     for(int start_y = 0; start_y<DISPLAY_HEIGHT; start_y+=DMA_LINES){
         uint16_t* ptr = &canvas[start_y*DISPLAY_WIDTH];
         int t_indx = step % QUEUE_DEPTH;
+        int lines_this_chunk = DMA_LINES;
+        if(start_y + lines_this_chunk > DISPLAY_HEIGHT){
+            lines_this_chunk = DISPLAY_HEIGHT - start_y;   // подрезаем последний кусок
+        }
             if(step >= QUEUE_DEPTH){
                 spi_transaction_t* rtrans;//указатель
                 spi_device_get_trans_result(spi, &rtrans, portMAX_DELAY);//ждем когда 0(первая) транзакция дойдет до дислпея. указываем наше spi устройство, адрес на транзакцию(на самом деле просто пустышка в которую запишется последняя транзакция) и сколько ждать(мы ждем пока не отправится) 
             }
-            __builtin_memcpy(lines[t_indx], ptr, DISPLAY_WIDTH*2*DMA_LINES);
-            t[t_indx].length = (DISPLAY_WIDTH*DMA_LINES)*16;//размер нашей транзакции(это 20 строк)
+            __builtin_memcpy(lines[t_indx], ptr, DISPLAY_WIDTH*2*lines_this_chunk);
+            t[t_indx].length = (DISPLAY_WIDTH*lines_this_chunk)*16;//размер нашей транзакции
             t[t_indx].tx_buffer = lines[t_indx];
-            spi_device_queue_trans(spi, &t[t_indx], portMAX_DELAY);//отправляем ее на наше spi устройство в очередь, адрес указателя нашей заполненой строки и ожидаем(процессор спокойно может занимать своими делами)
+            t[t_indx].rxlength = 0;
+            esp_err_t err = spi_device_queue_trans(spi, &t[t_indx], portMAX_DELAY);
+            if (err != ESP_OK) {
+                ESP_LOGE("DBG", "queue_trans FAILED at step=%d: %s", step, esp_err_to_name(err));
+            }
+            //spi_device_queue_trans(spi, &t[t_indx], portMAX_DELAY);//отправляем ее на наше spi устройство в очередь, адрес указателя нашей заполненой строки и ожидаем(процессор спокойно может занимать своими делами)
             step++;
         }
-        for(int i=0; i<QUEUE_DEPTH; i++){
+        int pending = (step < QUEUE_DEPTH) ? step : QUEUE_DEPTH;
+        for(int i=0; i<pending; i++){
             spi_transaction_t* rtrans;
             spi_device_get_trans_result(spi, &rtrans, portMAX_DELAY);
         }//ожидаем отправки последней транзакции
@@ -180,7 +190,7 @@ void ST7789::fillreg(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_
         }
     }
 }
-void ST7789::fillTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, uint16_t color){
+void ST7789::fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color){
     std::lock_guard<std::recursive_mutex> lock(d_mutex);
     Point points[3] = {{x1,y1}, {x2,y2}, {x3,y3}};
     std::sort(points, points + 3, [](const Point& a, const Point& b) {
@@ -243,6 +253,9 @@ void ST7789::drawLineF(uint16_t x1, uint16_t x2,uint16_t y ,uint16_t color){
     }
 }
 ST7789::~ST7789(){
+    clean();
+}
+void ST7789::clean(){
     if (canvas != nullptr) {
         heap_caps_free(canvas);
         canvas = nullptr;
@@ -256,4 +269,40 @@ ST7789::~ST7789(){
     if (spi != nullptr) {
         spi_bus_remove_device(spi);
     }
+}
+void ST7789::setConfig(uint16_t width, uint16_t height, uint16_t dma_lines, uint16_t spi_mode){
+    DISPLAY_WIDTH = width;
+    DISPLAY_HEIGHT = height;
+    DMA_LINES = dma_lines;
+    SPI_MODE = spi_mode;
+}
+//new func, good luck)
+void ST7789::setMode(bool mode){
+    if(mode){
+        flag = true;
+    }
+    if(!mode){
+        clean();
+        DISPLAY_HEIGHT = 0;
+        DISPLAY_WIDTH = 0;
+        ESP_LOGI(display, "PLEASE REINIT CLASS");
+
+    }
+}
+//use this func only with UNSAFE mode.This function enables window management on the display. It is an experimental feature that is still under development.
+void ST7789::sWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2){
+    if(!flag){
+        return;
+    }
+    int newsize = (x2-x1+1)*(y2-y1+1)*2;
+    uint16_t* newCanvas = (uint16_t*)(heap_caps_realloc(canvas, newsize, MALLOC_CAP_8BIT));
+    if(newCanvas==NULL){
+        heap_caps_free(canvas);
+        ESP_LOGI(display, "Пизда беги");
+        return;
+    }
+    setWindow(x1,y1,x2,y2);
+    canvas = newCanvas;
+    DISPLAY_WIDTH = (x2-x1+1);
+    DISPLAY_HEIGHT = (y2-y1+1);
 }
